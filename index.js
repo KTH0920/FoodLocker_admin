@@ -57,7 +57,7 @@ import {
   query,
   orderBy,
   doc,
-  updateDoc    // ✅ Firestore 문서 업데이트 기능 추가
+  updateDoc
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -121,7 +121,7 @@ function renderOrderButtons(id, order) {
   if (order.status === '대기' && order.payment === '완료') {
     return `
       <button onclick="showOrderDetail('${id}')">상세</button>
-      <button onclick="assignLocker('${id}', ${order.locker}, '${order.customerName}')">수락/비밀번호 배정</button>
+      <button onclick="assignLocker('${id}', '${order.customerName}')">수락/비밀번호 배정</button>
     `;
   } else if (order.status === '배정') {
     return `
@@ -145,28 +145,45 @@ window.showOrderDetail = function (id) {
   alert(`주문 상세\n\n(주문 ID: ${id})`);
 };
 
-window.assignLocker = async function (orderId, lockerNum, customerName) {
+// ✅ 수정된 수락 함수: 관리자 락커 직접 지정
+window.assignLocker = async function (orderId, customerName) {
+  // 락커 번호 직접 입력 받기
+  const lockerInput = prompt('배정할 락커 번호를 입력하세요 (예: 101, 102 등):');
+  if (!lockerInput || isNaN(lockerInput)) {
+    alert('유효한 락커 번호를 입력해주세요.');
+    return;
+  }
+
+  const locker = lockers.find((l) => l.number == lockerInput);
+  if (!locker) {
+    alert('해당 락커 번호는 존재하지 않습니다.');
+    return;
+  }
+  if (locker.status === '사용 중') {
+    alert('이미 사용 중인 락커입니다.');
+    return;
+  }
+
+  // 비밀번호 자동 생성
   const password = String(Math.floor(1000 + Math.random() * 9000));
-  alert(`락커 ${lockerNum}에 비밀번호 ${password}가 배정되었습니다!`);
+  alert(`락커 ${lockerInput}번에 비밀번호 ${password}가 배정되었습니다!`);
 
   // 🔹 Firestore 업데이트
   const orderRef = doc(db, "orders", orderId);
   await updateDoc(orderRef, {
     status: "배정",
+    locker: lockerInput,
     lockerPassword: password
   });
 
-  // 🔹 락커 테이블 반영
-  const locker = lockers.find(l => l.number === lockerNum);
-  if (locker) {
-    locker.status = '사용 중';
-    locker.member = customerName;
-    locker.password = password;
-    locker.isOpen = false;
-    renderLockers();
-  }
+  // 🔹 락커 테이블 갱신
+  locker.status = '사용 중';
+  locker.member = customerName;
+  locker.password = password;
+  locker.isOpen = false;
+  renderLockers();
 
-  // 🔹 화면 버튼 및 상태 반영
+  // 🔹 화면 상태 변경
   const btnCell = document.getElementById(`btns-${orderId}`);
   if (btnCell) {
     btnCell.innerHTML = `
@@ -178,13 +195,14 @@ window.assignLocker = async function (orderId, lockerNum, customerName) {
   if (row) row.cells[9].textContent = '배정';
 };
 
+// 주문 상태 변경
 window.changeOrderStatus = async function (orderId, newStatus) {
   const btnCell = document.getElementById(`btns-${orderId}`);
   if (!btnCell) return;
   const row = btnCell.closest('tr');
   if (row) row.cells[9].textContent = newStatus;
 
-  // 🔹 Firestore 업데이트
+  // Firestore 업데이트
   const orderRef = doc(db, "orders", orderId);
   await updateDoc(orderRef, { status: newStatus });
 
@@ -236,7 +254,7 @@ window.releaseLocker = function (lockerNum) {
 };
 
 /***************************************************
- * 🌟 문의 관리 / 푸시 알림 (기존 동일)
+ * 🌟 문의 관리 / 푸시 알림
  ***************************************************/
 let inquirySeq = 1;
 const inquiries = [
