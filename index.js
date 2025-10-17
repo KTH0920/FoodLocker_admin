@@ -57,7 +57,8 @@ import {
   query,
   orderBy,
   doc,
-  updateDoc
+  updateDoc,
+  deleteDoc   // ✅ Firestore 삭제 기능 추가
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -133,6 +134,13 @@ function renderOrderButtons(id, order) {
       <button onclick="showOrderDetail('${id}')">상세</button>
       <button onclick="changeOrderStatus('${id}', '완료')">완료</button>
     `;
+  } 
+  // ✅ 완료 상태인 경우 “상세” + “비우기” 버튼 표시
+  else if (order.status === '완료') {
+    return `
+      <button onclick="showOrderDetail('${id}')">상세</button>
+      <button onclick="deleteOrder('${id}')">비우기</button>
+    `;
   } else {
     return `<button onclick="showOrderDetail('${id}')">상세</button>`;
   }
@@ -145,9 +153,8 @@ window.showOrderDetail = function (id) {
   alert(`주문 상세\n\n(주문 ID: ${id})`);
 };
 
-// ✅ 수정된 수락 함수: 관리자 락커 직접 지정
+// ✅ 락커 수락/배정
 window.assignLocker = async function (orderId, customerName) {
-  // 락커 번호 직접 입력 받기
   const lockerInput = prompt('배정할 락커 번호를 입력하세요 (예: 101, 102 등):');
   if (!lockerInput || isNaN(lockerInput)) {
     alert('유효한 락커 번호를 입력해주세요.');
@@ -164,11 +171,9 @@ window.assignLocker = async function (orderId, customerName) {
     return;
   }
 
-  // 비밀번호 자동 생성
   const password = String(Math.floor(1000 + Math.random() * 9000));
   alert(`락커 ${lockerInput}번에 비밀번호 ${password}가 배정되었습니다!`);
 
-  // 🔹 Firestore 업데이트
   const orderRef = doc(db, "orders", orderId);
   await updateDoc(orderRef, {
     status: "배정",
@@ -176,14 +181,12 @@ window.assignLocker = async function (orderId, customerName) {
     lockerPassword: password
   });
 
-  // 🔹 락커 테이블 갱신
   locker.status = '사용 중';
   locker.member = customerName;
   locker.password = password;
   locker.isOpen = false;
   renderLockers();
 
-  // 🔹 화면 상태 변경
   const btnCell = document.getElementById(`btns-${orderId}`);
   if (btnCell) {
     btnCell.innerHTML = `
@@ -195,14 +198,13 @@ window.assignLocker = async function (orderId, customerName) {
   if (row) row.cells[9].textContent = '배정';
 };
 
-// 주문 상태 변경
+// ✅ 주문 상태 변경
 window.changeOrderStatus = async function (orderId, newStatus) {
   const btnCell = document.getElementById(`btns-${orderId}`);
   if (!btnCell) return;
   const row = btnCell.closest('tr');
   if (row) row.cells[9].textContent = newStatus;
 
-  // Firestore 업데이트
   const orderRef = doc(db, "orders", orderId);
   await updateDoc(orderRef, { status: newStatus });
 
@@ -212,10 +214,30 @@ window.changeOrderStatus = async function (orderId, newStatus) {
       <button onclick="changeOrderStatus('${orderId}', '완료')">완료</button>
     `;
   } else if (newStatus === '완료') {
-    btnCell.innerHTML = `<button onclick="showOrderDetail('${orderId}')">상세</button>`;
+    // ✅ 완료 시 “상세 + 비우기” 버튼 표시
+    btnCell.innerHTML = `
+      <button onclick="showOrderDetail('${orderId}')">상세</button>
+      <button onclick="deleteOrder('${orderId}')">비우기</button>
+    `;
   }
 
   alert(`주문 상태가 '${newStatus}'로 변경되었습니다.`);
+};
+
+/***************************************************
+ * 🌟 주문 비우기 (Firestore 삭제)
+ ***************************************************/
+window.deleteOrder = async function (orderId) {
+  const confirmDelete = confirm("이 주문을 삭제하시겠습니까?");
+  if (!confirmDelete) return;
+
+  try {
+    await deleteDoc(doc(db, "orders", orderId));
+    alert("주문이 삭제되었습니다 ✅");
+  } catch (err) {
+    console.error("삭제 오류:", err);
+    alert("주문 삭제 중 오류가 발생했습니다.");
+  }
 };
 
 /***************************************************
